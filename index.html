@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Gemini Chat — single file (index.html)</title>
+<style>
+  :root { --accent:#1a73e8; --muted:#6b7280; --bg:#f3f4f6; --card:#ffffff; }
+  *{box-sizing:border-box}
+  body{font-family:Inter, "Segoe UI", Roboto, Arial, sans-serif; background:var(--bg); margin:0; padding:24px; color:#111}
+  .container{max-width:920px;margin:0 auto}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+  header h1{font-size:1.25rem;color:var(--accent);margin:0}
+  header p{margin:0;color:var(--muted);font-size:0.9rem}
+  .card{background:var(--card);padding:16px;border-radius:12px;box-shadow:0 6px 20px rgba(2,6,23,0.06);margin-bottom:16px}
+  .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  label{font-size:0.85rem;color:var(--muted)}
+  input[type="text"], input[type="password"], select {
+    padding:10px 12px;border-radius:8px;border:1px solid #e6e7ea;font-size:0.95rem;min-width:200px;
+  }
+  input[type="checkbox"]{transform:scale(1.05)}
+  button{background:var(--accent);color:white;padding:10px 14px;border:none;border-radius:8px;cursor:pointer;font-weight:600}
+  button.ghost{background:transparent;color:var(--accent);border:1px solid rgba(26,115,232,0.12)}
+  button:disabled{opacity:.6;cursor:not-allowed}
+  #messages{height:480px;overflow:auto;padding:12px;border-radius:10px;border:1px solid #eef2f6;background:#fbfdff;margin-top:12px}
+  .msg{padding:10px 14px;margin:8px 0;border-radius:10px;max-width:78%;word-wrap:break-word;white-space:pre-wrap}
+  .msg.user{margin-left:auto;background:var(--accent);color:white}
+  .msg.bot{background:#f1f3f5;color:#111}
+  .msg.system{background:#fff9e6;color:#6b4e00;border:1px solid #fff0c2}
+  .msg.error{background:#fff0f0;color:#6b1b1b;border:1px solid #ffd6dd}
+  .controls{display:flex;gap:8px;margin-top:12px;align-items:center}
+  .small{font-size:0.82rem;color:var(--muted)}
+  .meta{display:flex;gap:10px;align-items:center}
+  footer{font-size:0.82rem;color:var(--muted);margin-top:8px}
+  .flex-1{flex:1}
+  .note{font-size:0.85rem;color:#92400e;background:#fff7ed;padding:8px;border-radius:8px;margin-top:10px}
+  pre.debug{background:#0b1020;color:#cfeefd;padding:10px;border-radius:8px;overflow:auto;margin-top:8px}
+</style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>vesta — single-file</h1>
+      <p>Quick test UI for Gemini <span style="opacity:.8">— client or proxy mode</span></p>
+    </header>
+
+    <!-- CONFIG UI -->
+    <div class="card" id="configCard" aria-labelledby="configTitle">
+      <div class="row" style="justify-content:space-between;">
+        <div style="min-width:320px">
+          <label id="configTitle">API Key & Settings</label>
+          <div style="margin-top:8px;" class="row">
+            <input id="apiKey" type="password" placeholder="Paste API key here (for testing only)" autocomplete="off" />
+            <label class="small" style="display:flex;align-items:center;gap:8px">
+              <input id="rememberKey" type="checkbox"/> Remember
+            </label>
+          </div>
+
+          <div style="margin-top:10px" class="row">
+            <label class="small">Model</label>
+            <select id="modelSelect">
+              <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+              <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+              <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+              <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+            </select>
+
+            <label class="small">API version</label>
+            <select id="apiVersion">
+              <option value="v1beta">v1beta</option>
+              <option value="v1beta2">v1beta2</option>
+              <option value="v1beta3">v1beta3</option>
+            </select>
+
+            <label class="small" title="If you run a server-side proxy, toggle this to use /api/generate (recommended)">
+              <input id="useProxy" type="checkbox" /> Use proxy
+            </label>
+          </div>
+        </div>
+
+        <div style="min-width:240px">
+          <div class="small meta">Rate limit (ms)
+            <input id="rateLimit" type="text" value="1200" style="width:88px;margin-left:8px" />
+          </div>
+          <div style="margin-top:10px" class="small">Proxy endpoint (if using proxy): <code>/api/generate</code></div>
+          <div style="margin-top:8px" class="note">
+            <strong>Production tip:</strong> Do NOT keep API keys in the browser. Use a backend proxy.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CHAT UI -->
+    <div class="card">
+      <div style="display:flex;gap:12px;align-items:center">
+        <input id="userInput" type="text" placeholder="Type your message and press Enter or Send" class="flex-1" />
+        <button id="sendBtn">Send</button>
+        <button id="clearBtn" class="ghost">Clear</button>
+      </div>
+
+      <div id="messages" role="log" aria-live="polite"></div>
+
+      <div class="controls">
+        <div class="small">Status: <span id="status">idle</span></div>
+        <div class="small">Last HTTP: <span id="lastHttp">—</span></div>
+        <div style="margin-left:auto" class="small">Tips: <span id="tips">Set API key & press Send</span></div>
+      </div>
+
+      <pre id="debug" class="debug" style="display:none"></pre>
+    </div>
+
+    <footer>
+      <div class="small">If you see <strong>404</strong> switch API version (v1beta / v1beta2 / v1beta3) or use proxy. For <strong>401/403</strong> check your key, billing and key restrictions.</div>
+    </footer>
+  </div>
+
+<script>
+/*
+  Single-file Gemini chat frontend.
+
+  HOW TO USE:
+  1) Paste your Gemini API key in the field (for quick local tests only).
+  2) Choose model and API version (if you get 404 try another version).
+  3) Optionally toggle "Use proxy" to call /api/generate — recommended for production.
+  4) Press Enter or Send.
+
+  NOTE: This is a demo. For production run a server-side proxy to keep the key secret.
+*/
+
+(() => {
+  // Elements
+  const apiKeyEl = document.getElementById('apiKey');
+  const rememberKeyEl = document.getElementById('rememberKey');
+  const modelSelect = document.getElementById('modelSelect');
+  const apiVersionEl = document.getElementById('apiVersion');
+  const useProxyEl = document.getElementById('useProxy');
+  const rateLimitEl = document.getElementById('rateLimit');
+
+  const userInput = document.getElementById('userInput');
+  const sendBtn = document.getElementById('sendBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const messages = document.getElementById('messages');
+  const statusSpan = document.getElementById('status');
+  const lastHttp = document.getElementById('lastHttp');
+  const debugPre = document.getElementById('debug');
+  const tips = document.getElementById('tips');
+
+  // State
+  let isLoading = false;
+  let lastRequestTime = 0;
+
+  // Persisted key (optional)
+  const LS_KEY = 'gemini_demo_api_key';
+  const LS_REMEMBER = 'gemini_demo_remember';
+
+  // Restore remembered key
+  if (localStorage.getItem(LS_REMEMBER) === '1') {
+    rememberKeyEl.checked = true;
+    apiKeyEl.value = localStorage.getItem(LS_KEY) || '';
+  }
+
+  // Helpers
+  function appendMessage(sender, text, cls = 'bot') {
+    const d = document.createElement('div');
+    d.className = `msg ${cls}`;
+    d.textContent = `${sender}: ${text}`;
+    messages.appendChild(d);
+    messages.scrollTop = messages.scrollHeight;
+  }
+  function appendSystem(text) {
+    const d = document.createElement('div');
+    d.className = 'msg system';
+    d.textContent = text;
+    messages.appendChild(d);
+    messages.scrollTop = messages.scrollHeight;
+  }
+  function appendError(text) {
+    const d = document.createElement('div');
+    d.className = 'msg error';
+    d.textContent = `Error: ${text}`;
+    messages.appendChild(d);
+    messages.scrollTop = messages.scrollHeight;
+  }
+  function setStatus(s) { statusSpan.textContent = s; }
+  function showDebug(obj) { debugPre.style.display = 'block'; debugPre.textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2); }
+  function hideDebug() { debugPre.style.display = 'none'; debugPre.textContent = ''; }
+
+  // Rate limit
+  function checkRateLimit() {
+    const now = Date.now();
+    const ms = parseInt(rateLimitEl.value || '1200', 10) || 1200;
+    const elapsed = now - lastRequestTime;
+    return elapsed < ms ? (ms - elapsed) : 0;
+  }
+
+  // Build payload for generateContent
+  function buildGeneratePayload(text) {
+    // Gemini expects "contents": [ { role, parts: [{text}] } ]
+    // Optionally include generationConfig or candidateCount if desired.
+    return {
+      contents: [
+        {
+          role: "user",
+          parts: [{ text }]
+        }
+      ],
+      // generationConfig: { temperature: 0.7, maxOutputTokens: 512 },
+      // candidateCount: 1
+    };
+  }
+
+  // Robust extractor for different response shapes
+  function extractTextFromResponse(json) {
+    // Try several common shapes seen in examples
+    try {
+      // 1) json.candidates[0].content.parts[].text (or content.parts is an array)
+      if (json.candidates && json.candidates.length > 0) {
+        const cand = json.candidates[0];
+        // candidate.content may be an object OR array
+        if (cand.content) {
+          // content might be an array of blocks or object with parts
+          if (Array.isArray(cand.content)) {
+            const texts = [];
+            cand.content.forEach(block => {
+              if (block.parts && Array.isArray(block.parts)) {
+                block.parts.forEach(p => { if (p.text) texts.push(p.text); });
+              }
+            });
+            if (texts.length) return texts.join('\n');
+          } else if (cand.content.parts && Array.isArray(cand.content.parts)) {
+            return cand.content.parts.map(p=>p.text||'').join('\n');
+          }
+        }
+        // 2) candidate.output / candidate.text
+        if (cand.output) return cand.output;
+        if (cand.text) return cand.text;
+      }
+      // 3) top-level fields
+      if (json.output) return json.output;
+      if (json.text) return json.text;
+      // 4) sometimes there's 'result' or 'response'
+      if (json.result && json.result.candidates && json.result.candidates[0]) {
+        const r = json.result.candidates[0];
+        if (r.content && r.content.parts) return r.content.parts.map(p=>p.text).join('\n');
+        if (r.output) return r.output;
+      }
+    } catch (e) {
+      // ignore and fallback
+      console.warn('extractText error', e);
+    }
+    // fallback: return pretty-printed JSON for debugging
+    return JSON.stringify(json, null, 2);
+  }
+
+  // Main call: either direct Gemini REST or proxy depending on toggle
+  async function callGeminiApi(userText) {
+    const model = modelSelect.value;
+    const apiVersion = apiVersionEl.value;
+    const useProxy = useProxyEl.checked;
+    const key = apiKeyEl.value.trim();
+
+    if (!useProxy && !key) {
+      throw new Error('Missing API key (unless using proxy). Paste the key or enable proxy.');
+    }
+
+    if (rememberKeyEl.checked) {
+      localStorage.setItem(LS_REMEMBER, '1');
+      localStorage.setItem(LS_KEY, key);
+    } else {
+      localStorage.removeItem(LS_REMEMBER);
+      localStorage.removeItem(LS_KEY);
+    }
+
+    // Update status
+    setStatus('calling');
+
+    if (useProxy) {
+      // Call your server endpoint: POST /api/generate { text }
+      lastHttp.textContent = 'POST /api/generate';
+      const resp = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: userText })
+      });
+      lastHttp.textContent = `POST /api/generate → ${resp.status}`;
+      if (!resp.ok) {
+        const txt = await resp.text().catch(()=>`HTTP ${resp.status}`);
+        throw new Error(`Proxy error ${resp.status}: ${txt}`);
+      }
+      const json = await resp.json().catch(()=> null);
+      // If proxy returns same Gemini JSON, extract; else if proxy returns { output } use that.
+      if (json) {
+        // If proxy wrapped response: { candidates: ... } extract; or if { output: "..." } return.
+        return extractTextFromResponse(json);
+      } else {
+        throw new Error('Proxy returned non-JSON response');
+      }
+    } else {
+      // Direct call to Gemini REST
+      const apiVersionPath = apiVersion || 'v1beta';
+      const endpoint = `https://generativelanguage.googleapis.com/${apiVersionPath}/models/${model}:generateContent`;
+      // We include key in query and x-goog-api-key header for robustness
+      const url = `${endpoint}?key=${encodeURIComponent(key)}`;
+
+      lastHttp.textContent = `POST ${endpoint} (client)`;
+      const payload = buildGeneratePayload(userText);
+      // You can uncomment generationConfig if desired:
+      // payload.generationConfig = { temperature: 0.7, maxOutputTokens: 512, candidateCount: 1 };
+
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': key,
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      lastHttp.textContent = `POST ${endpoint} → ${resp.status}`;
+      const txt = await resp.text().catch(()=>null);
+      // Try to parse JSON if present
+      let json = null;
+      try { json = txt ? JSON.parse(txt) : null; } catch(e) { /* non-json body */ }
+
+      if (!resp.ok) {
+        // Provide helpful hints for common statuses
+        let hint = '';
+        if (resp.status === 404) hint = ' — 404 often means wrong API version/model or API not enabled for your project.';
+        if (resp.status === 401 || resp.status === 403) hint = ' — 401/403 usually mean API key invalid, not enabled, billing issue, or key restrictions.';
+        // include server body if available
+        const bodySummary = json ? (json.error?.message || JSON.stringify(json)) : (txt || `${resp.status} ${resp.statusText}`);
+        throw new Error(`${bodySummary}${hint}`);
+      }
+
+      if (!json) {
+        // No JSON returned: return raw text
+        return txt || '';
+      }
+      // Extract text content from response
+      return extractTextFromResponse(json);
+    }
+  }
+
+  // UI events
+  sendBtn.addEventListener('click', async () => { await onSend(); });
+  userInput.addEventListener('keypress', async (e) => { if (e.key === 'Enter') await onSend(); });
+  clearBtn.addEventListener('click', () => { messages.innerHTML = ''; hideDebug(); lastHttp.textContent = '—'; setStatus('idle'); });
+
+  async function onSend() {
+    if (isLoading) return;
+    const text = userInput.value.trim();
+    if (!text) return;
+    const wait = checkRateLimit();
+    if (wait > 0) {
+      appendError(`Rate limited. Wait ${Math.ceil(wait/1000)}s`);
+      return;
+    }
+
+    userInput.value = '';
+    appendMessage('User', text, 'user');
+    lastRequestTime = Date.now();
+    isLoading = true;
+    setStatus('loading');
+    hideDebug();
+
+    try {
+      const out = await callGeminiApi(text);
+      appendMessage('vesta', out, 'bot');
+      setStatus('ok');
+      tips.textContent = 'Success';
+      // keep debug hidden unless user wants to inspect
+    } catch (err) {
+      appendError(err.message || String(err));
+      setStatus('error');
+      // show debug details
+      showDebug({ error: (err && err.message) ? err.message : String(err), http: lastHttp.textContent });
+      tips.textContent = 'See debug for details';
+      console.error('API error', err);
+    } finally {
+      isLoading = false;
+    }
+  }
+
+  // expose a small keyboard shortcut: Ctrl+K to focus api key
+  window.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); apiKeyEl.focus(); } });
+
+  // initial tips
+  setStatus('idle');
+  tips.textContent = 'Paste API key (or enable proxy)';
+
+  // small helper to show last request time
+  window.setInterval(() => {
+    const elapsed = lastRequestTime ? Math.round((Date.now() - lastRequestTime)/1000) + 's ago' : 'never';
+    // not showing in UI except as lastHttp
+  }, 1000);
+})();
+</script>
+</body>
+</html>
